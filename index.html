@@ -1,5 +1,419 @@
 <!DOCTYPE html>
-<html>
-<head><title>Map</title></head>
-<body>Loading...</body>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>マーカー管理サイト（地図プレビュー付き）</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+body { margin:0; font-family: Arial; display:flex; height:100vh; }
+#sidebar { width:350px; padding:10px; background:#f0f0f0; overflow-y:auto; box-sizing:border-box; }
+#map { flex:1; min-width:400px; height:100vh; background:#ddd; }
+h3 { margin:10px 0 5px 0; }
+.list-item { cursor:pointer; padding:5px; border-bottom:1px solid #ccc; }
+.selected { background:#e9e99b; }
+label { display:block; margin-top:5px; }
+input, select, textarea { width:100%; margin-top:2px; box-sizing:border-box; }
+button { margin-top:5px; width:32%; }
+#markerList, #typeList #labellist {
+  max-height: 150px;  /* 上限5個分の高さの目安 */
+  overflow-y: auto;   /* 上限を超えたらスクロール */
+  border: 1px solid #ccc;
+  padding: 5px;
+}
+.map-label {
+  background: rgba(255,255,255,0.0); /* ラベルのCSS設定 */
+  padding: 2px 4px;
+  border-radius: 3px;
+  font-size: 10px;
+  text-align: center;
+}
+#markerPopup {
+  position: absolute;
+  background: white;
+  border: 2px solid #333;
+  border-radius: 8px;
+  padding: 10px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+  display: none;
+  max-width: 600px; /* ←ここがポップアップの横幅 */
+  font-size: 14px;
+  z-index: 9999;
+}
+
+  #markerPopup img {
+  width: 100%; /* ←画像をポップアップ幅に合わせる */
+  border-radius: 6px;
+  margin-top: 5px;
+}
+</style>
+</head>
+<body>
+
+<div id="sidebar">
+
+  <button id="toggleOverlayBtn">dynmap表示切替</button>
+
+  <h3>マーカー編集</h3>
+  <label>X座標: <input type="number" id="markerX"></label>
+  <label>Y座標: <input type="number" id="markerY"></label>
+  <button id="selectCoordsBtn">座標選択</button>
+  <label>名前<input id="markerName"/></label>
+  <label>種類<select id="markerType"></select></label>
+  <label>画像URL<input id="markerImage"/></label>
+  <label>説明<textarea id="markerDesc"></textarea></label>
+  <label>製作者名<input id="markerCreator"/></label>
+  <label>住所<input id="markerAddress"/></label>
+  <div>
+    <button id="updateMarkerBtn">更新</button>
+    <button id="addMarkerBtn">追加</button>
+    <button id="deleteMarkerBtn">削除</button>
+  </div>
+
+  <h4>マーカー一覧</h4>
+  <div id="markerList"></div>
+
+  <h3>種類編集</h3>
+  <label>名称<input id="typeName"/></label>
+  <label>アイコンURL<input id="typeIcon"/></label>
+  <label>説明<textarea id="typeDesc"></textarea></label>
+  <div>
+    <button id="updateTypeBtn">更新</button>
+    <button id="addTypeBtn">追加</button>
+    <button id="deleteTypeBtn">削除</button>
+  </div>
+
+  <h4>種類一覧</h4>
+  <div id="typeList"></div>
+
+  <h3>文字ラベル管理</h3>
+  <label>ラベル名<input id="labelName"/></label>
+  <label>X座標<input type="number" id="labelX"/></label>
+  <label>Y座標<input type="number" id="labelY"/></label>
+  <button id="selectLabelCoordsBtn">座標選択</button>
+  <div>
+    <button id="updateLabelBtn">更新</button>
+    <button id="addLabelBtn">追加</button>
+    <button id="deleteLabelBtn">削除</button>
+  </div>
+
+  <h4>ラベル一覧</h4>
+  <div id="labelList"></div>
+
+</div>
+
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.5/dist/leaflet.js"></script>
+<script>
+let markers=[], types=[];
+let selectedMarkerIndex=null, selectedTypeIndex=null;
+let previewMarker=null;
+
+// --- Leaflet 地図 ---
+const map = L.map('map', { crs: L.CRS.Simple, minZoom:-5 });
+const mapWidth=5049, mapHeight=2529;
+const bounds=[[0,0],[mapHeight,mapWidth]];
+map.setMaxBounds(bounds);
+map.fitBounds(bounds);
+
+// SVG 画像オーバーレイ（パスを正しく指定してください）
+L.imageOverlay('map.svg', bounds).addTo(map);
+
+const markerLayer = L.layerGroup().addTo(map);
+const labelLayer = L.layerGroup().addTo(map);
+
+// --- サーバーから取得 ---
+async function loadData(){
+  const mRes=await fetch('/api/markers'); markers=await mRes.json();
+  const tRes=await fetch('/api/types'); types=await tRes.json();
+  refreshMarkerList(); refreshTypeList(); refreshMarkerTypeSelect();
+  drawMarkers();
+}
+loadData();
+// --- 航空画像オーバーレイ ---
+let overlayVisible = false;
+
+// 画像を透明度付きで設定（触れないように interactive: false）
+const aerialOverlay = L.imageOverlay('dynmap2509.png', bounds, { opacity: 0.5, interactive: false });
+
+// ON/OFFボタン
+document.getElementById('toggleOverlayBtn').addEventListener('click', () => {
+  if (overlayVisible) {
+    map.removeLayer(aerialOverlay);
+    overlayVisible = false;
+  } else {
+    aerialOverlay.addTo(map);
+    overlayVisible = true;
+  }
+});
+
+// --- 座標選択ボタン処理 ---
+let selectingCoords = false;
+
+document.getElementById('selectCoordsBtn').addEventListener('click', () => {
+  selectingCoords = true;
+  alert("地図上をクリックして座標を選択してください");
+});
+
+map.on('click', function(e){
+  if (selectingCoords) {
+    document.getElementById('markerX').value = Math.round(e.latlng.lng);
+    document.getElementById('markerY').value = Math.round(e.latlng.lat);
+    selectingCoords = false;
+  }
+});
+
+// --- 座標選択ボタン処理(文字) ---
+let selectingLabelCoords = false;
+
+document.getElementById('selectLabelCoordsBtn').addEventListener('click', () => {
+  selectingLabelCoords = true;
+  alert("地図上をクリックしてラベルの座標を選択してください");
+});
+
+map.on('click', function(e){
+  if(selectingLabelCoords){
+    document.getElementById('labelX').value = Math.round(e.latlng.lng);
+    document.getElementById('labelY').value = Math.round(e.latlng.lat);
+    selectingLabelCoords = false;
+  }
+});
+
+// --- 描画(マーカー) ---
+function drawMarkers(){
+  markerLayer.clearLayers();
+  markers.forEach((m,i)=>{
+    const type=types.find(t=>t.name===m.type);
+    const iconUrl=type?type.icon:'';
+    const leafletIcon=iconUrl?L.icon({iconUrl,iconSize:[32,32],iconAnchor:[16,16]}):null;
+    const popupContent = `
+      <div style="min-width:150px;">
+        <strong>${m.name}</strong><br>
+        ${m.description ? `${m.description}<br>` : ''}
+        ${m.image ? `<img src="${m.image}" alt="${m.name}" style="max-width:100%;"><br>` : ''}
+        ${m.creator ? `製作者: ${m.creator}<br>` : ''}
+        ${m.address ? `住所: ${m.address}<br>` : ''}
+      </div>
+    `;
+
+    const lm = L.marker([m.y, m.x], {icon: leafletIcon}).addTo(markerLayer);
+    lm.bindPopup(popupContent);
+  });
+
+  if(selectedMarkerIndex!==null) showMarkerOnMap(markers[selectedMarkerIndex]);
+}
+
+// --- 描画(ラベル) ---
+function drawLabels() {
+  labelLayer.clearLayers();
+  labels.forEach((l, i) => {
+    L.marker([l.y, l.x], {
+      icon: L.divIcon({ 
+        className: 'map-label', 
+        html: l.name,
+        iconSize: [100, 24] // 適宜調整
+      }),
+      interactive: false // クリックで選択されないようにする場合
+    }).addTo(labelLayer);
+  });
+}
+
+// --- リスト更新 ---
+function refreshMarkerList(){
+  const div=document.getElementById('markerList'); div.innerHTML='';
+  markers.forEach((m,i)=>{
+    const d=document.createElement('div');
+    d.className='list-item'+(i===selectedMarkerIndex?' selected':'');
+    d.textContent=m.name+' ('+m.type+')';
+    d.onclick=()=>selectMarker(i);
+    div.appendChild(d);
+  });
+}
+function refreshTypeList(){
+  const div=document.getElementById('typeList'); div.innerHTML='';
+  types.forEach((t,i)=>{
+    const d=document.createElement('div');
+    d.className='list-item'+(i===selectedTypeIndex?' selected':'');
+    d.textContent=t.name;
+    d.onclick=()=>selectType(i);
+    div.appendChild(d);
+  });
+}
+function refreshMarkerTypeSelect(){
+  const sel=document.getElementById('markerType'); sel.innerHTML='';
+  types.forEach(t=>{ const o=document.createElement('option'); o.value=t.name; o.textContent=t.name; sel.appendChild(o); });
+}
+
+// --- 選択 ---
+function selectMarker(i){
+  selectedMarkerIndex=i;
+  const m=markers[i];
+  document.getElementById('markerX').value = m.x;
+  document.getElementById('markerY').value = m.y;
+  document.getElementById('markerName').value=m.name;
+  document.getElementById('markerType').value=m.type;
+  document.getElementById('markerDesc').value=m.description;
+  document.getElementById('markerImage').value = m.image || '';
+  document.getElementById('markerCreator').value = m.creator || '';
+  document.getElementById('markerAddress').value = m.address || '';
+
+  refreshMarkerList();
+  showMarkerOnMap(m);
+}
+function selectType(i){
+  selectedTypeIndex=i;
+  const t=types[i];
+  document.getElementById('typeName').value=t.name;
+  document.getElementById('typeIcon').value=t.icon;
+  document.getElementById('typeDesc').value=t.description;
+  refreshTypeList();
+}
+
+// --- ボタン操作 ---
+document.getElementById('updateMarkerBtn').onclick = async ()=>{
+  if(selectedMarkerIndex===null) return;
+  const m = markers[selectedMarkerIndex];
+  m.x = parseInt(document.getElementById('markerX').value);
+  m.y = parseInt(document.getElementById('markerY').value);
+  m.name = document.getElementById('markerName').value;
+  m.type = document.getElementById('markerType').value;
+  m.description = document.getElementById('markerDesc').value;
+  m.image = document.getElementById('markerImage').value || '';
+  m.creator = document.getElementById('markerCreator').value || '';
+  m.address = document.getElementById('markerAddress').value || '';
+
+  await saveMarkers();
+  drawMarkers();
+  refreshMarkerList();
+};
+document.getElementById('addMarkerBtn').onclick=async()=>{
+  if(selectedMarkerIndex!==null) await saveMarkers();
+  const newM={x:mapHeight/2,y:mapWidth/2,name:'',type:types[0]?types[0].name:'',description:''};
+  markers.push(newM); selectedMarkerIndex=markers.length-1;
+  selectMarker(selectedMarkerIndex);
+  await saveMarkers(); refreshMarkerList(); drawMarkers();
+};
+document.getElementById('deleteMarkerBtn').onclick=async()=>{
+  if(selectedMarkerIndex===null) return;
+  markers.splice(selectedMarkerIndex,1); selectedMarkerIndex=null;
+  await saveMarkers(); refreshMarkerList(); drawMarkers();
+};
+// --- ラベル管理 ---
+let labels = [];
+let selectedLabelIndex = null;
+
+// ラベル一覧更新
+function refreshLabelList(){
+  const div = document.getElementById('labelList');
+  div.innerHTML = '';
+  labels.forEach((l,i)=>{
+    const d = document.createElement('div');
+    d.className = 'list-item'+(i===selectedLabelIndex?' selected':'');
+    d.textContent = `${l.name} (x:${l.x}, y:${l.y})`;
+    d.onclick = ()=>selectLabel(i);
+    div.appendChild(d);
+  });
+}
+
+// ラベル選択
+function selectLabel(i){
+  selectedLabelIndex = i;
+  const l = labels[i];
+  document.getElementById('labelName').value = l.name;
+  document.getElementById('labelX').value = l.x;
+  document.getElementById('labelY').value = l.y;
+  refreshLabelList();
+}
+
+// 保存
+async function saveLabels(){
+  await fetch('/api/labels',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(labels)
+  }).then(r=>r.json()).then(d=>console.log(d.message));
+}
+
+// ボタン操作
+document.getElementById('addLabelBtn').onclick = async()=>{
+  labels.push({
+    name: document.getElementById('labelName').value,
+    x: parseInt(document.getElementById('labelX').value),
+    y: parseInt(document.getElementById('labelY').value)
+  });
+  await saveLabels(); refreshLabelList(); drawLabels();
+};
+
+document.getElementById('updateLabelBtn').onclick = async()=>{
+  if(selectedLabelIndex===null) return;
+  labels[selectedLabelIndex] = {
+    name: document.getElementById('labelName').value,
+    x: parseInt(document.getElementById('labelX').value),
+    y: parseInt(document.getElementById('labelY').value)
+  };
+  await saveLabels(); refreshLabelList(); drawLabels();
+};
+
+document.getElementById('deleteLabelBtn').onclick = async()=>{
+  if(selectedLabelIndex===null) return;
+  labels.splice(selectedLabelIndex,1);
+  selectedLabelIndex=null;
+  await saveLabels(); refreshLabelList(); drawLabels();
+};
+document.getElementById('updateTypeBtn').onclick=async()=>{
+  if(selectedTypeIndex===null) return;
+  const t=types[selectedTypeIndex];
+  m.x = parseInt(document.getElementById('labelX').value); // 追加
+  m.y = parseInt(document.getElementById('labelY').value); // 追加
+  t.name=document.getElementById('typeName').value;
+  t.icon=document.getElementById('typeIcon').value;
+  t.description=document.getElementById('typeDesc').value;
+  await saveTypes(); refreshTypeList(); refreshMarkerTypeSelect(); drawMarkers();
+};
+document.getElementById('addTypeBtn').onclick=async()=>{
+  if(selectedTypeIndex!==null){
+    const t=types[selectedTypeIndex];
+    t.name=document.getElementById('typeName').value;
+    t.icon=document.getElementById('typeIcon').value;
+    t.description=document.getElementById('typeDesc').value;
+  }
+  const newT={name:'',icon:'',description:''};
+  types.push(newT); selectedTypeIndex=types.length-1;
+  selectType(selectedTypeIndex);
+  await saveTypes(); refreshTypeList(); refreshMarkerTypeSelect(); drawMarkers();
+};
+document.getElementById('deleteTypeBtn').onclick=async()=>{
+  if(selectedTypeIndex===null) return;
+  types.splice(selectedTypeIndex,1); selectedTypeIndex=null;
+  await saveTypes(); refreshTypeList(); refreshMarkerTypeSelect(); drawMarkers();
+};
+
+// --- サーバー保存 ---
+async function saveMarkers() {
+  await fetch('/api/markers', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(markers)
+  });
+}
+
+async function saveTypes() {
+  await fetch('/api/types', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(types)
+  });
+}
+
+fetch('/api/labels')
+  .then(res => res.json())
+  .then(data => {
+    labels = data;
+    refreshLabelList();
+    drawLabels();  // ←ここで描画
+  });
+  
+</script>
+</body>
 </html>
