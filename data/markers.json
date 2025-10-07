@@ -1,0 +1,45 @@
+[
+  {
+    "x": 2191,
+    "y": 2093,
+    "name": "燈山神社",
+    "type": "神社",
+    "icon": "markers/shrine.png",
+    "description": "test",
+    "image": "images/akariyama.png",
+    "creator": "ayubu",
+    "address": ""
+  },
+  {
+    "x": 2525,
+    "y": 1368,
+    "name": "燈山",
+    "type": "神社",
+    "icon": "",
+    "description": "test"
+  },
+  {
+    "x": 1275,
+    "y": 1949,
+    "name": "ああ",
+    "type": "神社",
+    "description": "あああ"
+  },
+  {
+    "x": 1264,
+    "y": 2524,
+    "name": "ほぼの神社",
+    "type": "神社",
+    "description": "わ～～",
+    "image": "",
+    "creator": "ayubu",
+    "address": "おうち"
+  },
+  {
+    "x": 1264.5,
+    "y": 2524.5,
+    "name": "",
+    "type": "神社",
+    "description": ""
+  }
+]

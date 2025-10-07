@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>マップサイト</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  body { margin:0; font-family: Arial; }
+  #map { width: 100%; height: 100vh; }
+  .type-toggle { position: absolute; top: 10px; right: 10px; background: white; padding: 10px; border-radius: 5px; max-height: 80vh; overflow-y: auto; }
+  .map-label {
+    background: rgba(255,255,255,0.8);
+    padding: 2px 4px;
+    border-radius: 3px;
+    font-size: 10px;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div class="type-toggle" id="typeToggle"></div>
+
+<script>
+const mapWidth = 5049, mapHeight = 2529;
+const bounds = [[0,0],[mapHeight,mapWidth]];
+const map = L.map('map', {crs: L.CRS.Simple, minZoom: -5}).fitBounds(bounds);
+
+// 画像オーバーレイ（地図背景）
+L.imageOverlay('map.svg', bounds).addTo(map);
+
+const markerLayer = L.layerGroup().addTo(map);
+const labelLayer = L.layerGroup().addTo(map);
+
+let markers = [];
+let types = [];
+let labels = [];
+let typeVisibility = {}; // 種類ごとの表示/非表示管理
+
+// --- データ読み込み ---
+async function loadData() {
+  const mRes = await fetch('server/markers.json');
+  markers = await mRes.json();
+  
+  const tRes = await fetch('server/types.json');
+  types = await tRes.json();
+  
+  const lRes = await fetch('server/labels.json');
+  labels = await lRes.json();
+  
+  types.forEach(t => typeVisibility[t.name] = true);
+  
+  drawMarkers();
+  drawLabels();
+  setupTypeToggle();
+}
+loadData();
+
+// --- マーカー描画 ---
+function drawMarkers() {
+  markerLayer.clearLayers();
+  
+  markers.forEach(m => {
+    if (!typeVisibility[m.type]) return; // 非表示なら描画しない
+    
+    const type = types.find(t => t.name === m.type);
+    const iconUrl = type ? type.icon : '';
+    const leafletIcon = iconUrl ? L.icon({iconUrl, iconSize:[32,32], iconAnchor:[16,16]}) : null;
+    
+    const popupContent = `
+      <div style="min-width:150px;">
+        <strong>${m.name}</strong><br>
+        ${m.type ? `<em>${m.type}</em><br>` : ''}
+        ${m.description ? `${m.description}<br>` : ''}
+        ${m.image ? `<img src="${m.image}" alt="${m.name}" style="max-width:100%;"><br>` : ''}
+        ${m.creator ? `製作者: ${m.creator}<br>` : ''}
+        ${m.address ? `住所: ${m.address}<br>` : ''}
+      </div>
+    `;
+    
+    const lm = L.marker([m.y, m.x], {icon: leafletIcon}).addTo(markerLayer);
+    lm.bindPopup(popupContent);
+  });
+}
+
+// --- ラベル描画 ---
+function drawLabels() {
+  labelLayer.clearLayers();
+  labels.forEach(l => {
+    L.marker([l.y, l.x], {
+      icon: L.divIcon({
+        className: 'map-label',
+        html: l.name,
+        iconSize: [100, 24]
+      }),
+      interactive: false
+    }).addTo(labelLayer);
+  });
+}
+
+// --- 種類ごとのON/OFFチェックボックス ---
+function setupTypeToggle() {
+  const container = document.getElementById('typeToggle');
+  container.innerHTML = '';
+  
+  types.forEach(t => {
+    const label = document.createElement('label');
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.checked = typeVisibility[t.name];
+    checkbox.onchange = () => {
+      typeVisibility[t.name] = checkbox.checked;
+      drawMarkers();
+    };
+    label.appendChild(checkbox);
+    label.appendChild(document.createTextNode(' ' + t.name));
+    container.appendChild(label);
+    container.appendChild(document.createElement('br'));
+  });
+}
+
+</script>
+</body>
+</html>

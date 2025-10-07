@@ -1,0 +1,12 @@
+[
+  {
+    "name": "神社",
+    "icon": "markers/shrine.png",
+    "description": "神社です。"
+  },
+  {
+    "name": "寺",
+    "icon": "markers/temple.png",
+    "description": "寺"
+  }
+]
