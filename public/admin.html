@@ -5,59 +5,26 @@
 <title>マーカー管理サイト（地図プレビュー付き）</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 body { margin:0; font-family: Arial; display:flex; height:100vh; }
 #sidebar { width:350px; padding:10px; background:#f0f0f0; overflow-y:auto; box-sizing:border-box; }
 #map { flex:1; min-width:400px; height:100vh; background:#ddd; }
-h3 { margin:10px 0 5px 0; }
 .list-item { cursor:pointer; padding:5px; border-bottom:1px solid #ccc; }
 .selected { background:#e9e99b; }
-label { display:block; margin-top:5px; }
-input, select, textarea { width:100%; margin-top:2px; box-sizing:border-box; }
 button { margin-top:5px; width:32%; }
-#markerList, #typeList #labellist {
-  max-height: 150px;  /* 上限5個分の高さの目安 */
-  overflow-y: auto;   /* 上限を超えたらスクロール */
-  border: 1px solid #ccc;
-  padding: 5px;
-}
 .map-label {
-  background: rgba(255,255,255,0.0); /* ラベルのCSS設定 */
-  padding: 2px 4px;
-  border-radius: 3px;
+  background: rgba(255,255,255,0.0);
   font-size: 10px;
-  text-align: center;
-}
-#markerPopup {
-  position: absolute;
-  background: white;
-  border: 2px solid #333;
-  border-radius: 8px;
-  padding: 10px;
-  box-shadow: 0 2px 10px rgba(0,0,0,0.3);
-  display: none;
-  max-width: 600px; /* ←ここがポップアップの横幅 */
-  font-size: 14px;
-  z-index: 9999;
-}
-
-  #markerPopup img {
-  width: 100%; /* ←画像をポップアップ幅に合わせる */
-  border-radius: 6px;
-  margin-top: 5px;
 }
 </style>
 </head>
 <body>
 
 <div id="sidebar">
-
   <button id="toggleOverlayBtn">dynmap表示切替</button>
-
   <h3>マーカー編集</h3>
-  <label>X座標: <input type="number" id="markerX"></label>
-  <label>Y座標: <input type="number" id="markerY"></label>
+  <label>X座標<input type="number" id="markerX"></label>
+  <label>Y座標<input type="number" id="markerY"></label>
   <button id="selectCoordsBtn">座標選択</button>
   <label>名前<input id="markerName"/></label>
   <label>種類<select id="markerType"></select></label>
@@ -89,8 +56,8 @@ button { margin-top:5px; width:32%; }
 
   <h3>文字ラベル管理</h3>
   <label>ラベル名<input id="labelName"/></label>
-  <label>X座標<input type="number" id="labelX"/></label>
-  <label>Y座標<input type="number" id="labelY"/></label>
+  <label>X座標<input type="number" id="labelX"></label>
+  <label>Y座標<input type="number" id="labelY"></label>
   <button id="selectLabelCoordsBtn">座標選択</button>
   <div>
     <button id="updateLabelBtn">更新</button>
@@ -100,381 +67,103 @@ button { margin-top:5px; width:32%; }
 
   <h4>ラベル一覧</h4>
   <div id="labelList"></div>
-
 </div>
 
 <div id="map"></div>
 
-<script src="https://unpkg.com/leaflet@1.9.5/dist/leaflet.js"></script>
-// Supabase
+<!-- Supabase接続と地図処理 -->
 <script type="module">
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm'
 
-// Supabase初期化
-const supabaseUrl = 'https://あなたのプロジェクトID.supabase.co'
-const supabaseAnonKey = 'あなたのanon public key'
+// ===== Supabase初期化 =====
+const supabaseUrl = 'https://YOUR_PROJECT_ID.supabase.co';
+const supabaseAnonKey = 'YOUR_ANON_PUBLIC_KEY';
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-// --- データ取得例（markersテーブルから） ---
-async function loadMarkersFromSupabase() {
-  const { data, error } = await supabase.from('markers').select('*');
-   if (error) {
-     console.error('データ取得エラー:', error);
-     return [];
-   }
-  console.log('取得したマーカー:', data);
-  return data;
- }
-
-  // --- 地図初期化 ---
-  const map = L.map('map', { crs: L.CRS.Simple, minZoom:-5 });
-  const mapWidth = 5049, mapHeight = 2529;
-  const bounds = [[0,0],[mapHeight,mapWidth]];
-  map.setMaxBounds(bounds);
-  map.fitBounds(bounds);
-  L.imageOverlay('map.svg', bounds).addTo(map);
-
-  // --- Supabaseからマーカーを読み込む ---
-  const markers = await loadMarkersFromSupabase();
-  console.log('読み込んだマーカー:', markers);
-<script>
-let markers=[], types=[];
-let selectedMarkerIndex=null, selectedTypeIndex=null;
-let previewMarker=null;
-
-// --- Leaflet 地図 ---
-const map = L.map('map', { crs: L.CRS.Simple, minZoom:-5 });
-const mapWidth=5049, mapHeight=2529;
-const bounds=[[0,0],[mapHeight,mapWidth]];
-map.setMaxBounds(bounds);
-map.fitBounds(bounds);
-
-// SVG 画像オーバーレイ（パスを正しく指定してください）
+// ===== Leaflet地図初期化 =====
+const mapWidth = 5049, mapHeight = 2529;
+const bounds = [[0,0],[mapHeight,mapWidth]];
+const map = L.map('map', { crs:L.CRS.Simple, minZoom:-5 }).setView([mapHeight/2,mapWidth/2],0);
 L.imageOverlay('map.svg', bounds).addTo(map);
+map.setMaxBounds(bounds);
 
-const markerLayer = L.layerGroup().addTo(map);
-const labelLayer = L.layerGroup().addTo(map);
+// ===== データ変数 =====
+let markers = [], types = [], labels = [];
+let selectedMarkerIndex = null, selectedTypeIndex = null, selectedLabelIndex = null;
 
-// --- サーバーから取得 ---
+// ===== Supabaseからデータ読み込み =====
 async function loadData(){
-  // マーカー取得
-  let { data: markersData, error: mErr } = await supabase.from('markers').select('*')
-  if(mErr){ console.error(mErr); markers=[] } else { markers = markersData }
-
-  // 種類取得
-  let { data: typesData, error: tErr } = await supabase.from('types').select('*')
-  if(tErr){ console.error(tErr); types=[] } else { types = typesData }
-
-  // ラベル取得
-  let { data: labelsData, error: lErr } = await supabase.from('labels').select('*')
-  if(lErr){ console.error(lErr); labels=[] } else { labels = labelsData }
-
-  refreshMarkerList(); refreshTypeList(); refreshMarkerTypeSelect(); drawMarkers(); drawLabels();
+  const { data: m } = await supabase.from('markers').select('*');
+  const { data: t } = await supabase.from('type').select('*');
+  const { data: l } = await supabase.from('labels').select('*');
+  markers = m || []; types = t || []; labels = l || [];
+  refreshMarkerList(); refreshTypeList(); refreshLabelList();
+  drawMarkers(); drawLabels();
 }
-loadData();
-// --- 航空画像オーバーレイ ---
-let overlayVisible = false;
+await loadData();
 
-// 画像を透明度付きで設定（触れないように interactive: false）
-const aerialOverlay = L.imageOverlay('layers/dynmap2509.png', bounds, { opacity: 0.5, interactive: false });
-
-// ON/OFFボタン
-document.getElementById('toggleOverlayBtn').addEventListener('click', () => {
-  if (overlayVisible) {
-    map.removeLayer(aerialOverlay);
-    overlayVisible = false;
-  } else {
-    aerialOverlay.addTo(map);
-    overlayVisible = true;
+// ===== 保存関数 =====
+async function saveMarkers(){
+  for(const m of markers){
+    if(m.id) await supabase.from('markers').update(m).eq('id',m.id);
+    else { const { data } = await supabase.from('markers').insert([m]); if(data) m.id=data[0].id; }
   }
-});
+}
 
-// --- 座標選択ボタン処理 ---
-let selectingCoords = false;
-
-document.getElementById('selectCoordsBtn').addEventListener('click', () => {
-  selectingCoords = true;
-  alert("地図上をクリックして座標を選択してください");
-});
-
-map.on('click', function(e){
-  if (selectingCoords) {
-    document.getElementById('markerX').value = Math.round(e.latlng.lng);
-    document.getElementById('markerY').value = Math.round(e.latlng.lat);
-    selectingCoords = false;
+async function saveTypes(){
+  for(const t of types){
+    if(t.id) await supabase.from('type').update(t).eq('id',t.id);
+    else { const { data } = await supabase.from('type').insert([t]); if(data) t.id=data[0].id; }
   }
-});
-
-// --- 座標選択ボタン処理(文字) ---
-let selectingLabelCoords = false;
-
-document.getElementById('selectLabelCoordsBtn').addEventListener('click', () => {
-  selectingLabelCoords = true;
-  alert("地図上をクリックしてラベルの座標を選択してください");
-});
-
-map.on('click', function(e){
-  if(selectingLabelCoords){
-    document.getElementById('labelX').value = Math.round(e.latlng.lng);
-    document.getElementById('labelY').value = Math.round(e.latlng.lat);
-    selectingLabelCoords = false;
-  }
-});
-
-// --- 描画(マーカー) ---
-function drawMarkers(){
-  markerLayer.clearLayers();
-  markers.forEach((m,i)=>{
-    const type=types.find(t=>t.name===m.type);
-    const iconUrl=type?type.icon:'';
-    const leafletIcon=iconUrl?L.icon({iconUrl,iconSize:[32,32],iconAnchor:[16,16]}):null;
-    const popupContent = `
-      <div style="min-width:150px;">
-        <strong>${m.name}</strong><br>
-        ${m.description ? `${m.description}<br>` : ''}
-        ${m.image ? `<img src="${m.image}" alt="${m.name}" style="max-width:100%;"><br>` : ''}
-        ${m.creator ? `製作者: ${m.creator}<br>` : ''}
-        ${m.address ? `住所: ${m.address}<br>` : ''}
-      </div>
-    `;
-
-    const lm = L.marker([m.y, m.x], {icon: leafletIcon}).addTo(markerLayer);
-    lm.bindPopup(popupContent);
-  });
-
-  if(selectedMarkerIndex!==null) showMarkerOnMap(markers[selectedMarkerIndex]);
 }
 
-// --- 描画(ラベル) ---
-function drawLabels() {
-  labelLayer.clearLayers();
-  labels.forEach((l, i) => {
-    L.marker([l.y, l.x], {
-      icon: L.divIcon({ 
-        className: 'map-label', 
-        html: l.name,
-        iconSize: [100, 24] // 適宜調整
-      }),
-      interactive: false // クリックで選択されないようにする場合
-    }).addTo(labelLayer);
-  });
-}
-
-// --- リスト更新 ---
-function refreshMarkerList(){
-  const div=document.getElementById('markerList'); div.innerHTML='';
-  markers.forEach((m,i)=>{
-    const d=document.createElement('div');
-    d.className='list-item'+(i===selectedMarkerIndex?' selected':'');
-    d.textContent=m.name+' ('+m.type+')';
-    d.onclick=()=>selectMarker(i);
-    div.appendChild(d);
-  });
-}
-function refreshTypeList(){
-  const div=document.getElementById('typeList'); div.innerHTML='';
-  types.forEach((t,i)=>{
-    const d=document.createElement('div');
-    d.className='list-item'+(i===selectedTypeIndex?' selected':'');
-    d.textContent=t.name;
-    d.onclick=()=>selectType(i);
-    div.appendChild(d);
-  });
-}
-function refreshMarkerTypeSelect(){
-  const sel=document.getElementById('markerType'); sel.innerHTML='';
-  types.forEach(t=>{ const o=document.createElement('option'); o.value=t.name; o.textContent=t.name; sel.appendChild(o); });
-}
-
-// --- 選択 ---
-function selectMarker(i){
-  selectedMarkerIndex=i;
-  const m=markers[i];
-  document.getElementById('markerX').value = m.x;
-  document.getElementById('markerY').value = m.y;
-  document.getElementById('markerName').value=m.name;
-  document.getElementById('markerType').value=m.type;
-  document.getElementById('markerDesc').value=m.description;
-  document.getElementById('markerImage').value = m.image || '';
-  document.getElementById('markerCreator').value = m.creator || '';
-  document.getElementById('markerAddress').value = m.address || '';
-
-  refreshMarkerList();
-  showMarkerOnMap(m);
-}
-function selectType(i){
-  selectedTypeIndex=i;
-  const t=types[i];
-  document.getElementById('typeName').value=t.name;
-  document.getElementById('typeIcon').value=t.icon;
-  document.getElementById('typeDesc').value=t.description;
-  refreshTypeList();
-}
-
-// --- ボタン操作 ---
-document.getElementById('updateMarkerBtn').onclick = async ()=>{
-  if(selectedMarkerIndex===null) return;
-  const m = markers[selectedMarkerIndex];
-  m.x = parseInt(document.getElementById('markerX').value);
-  m.y = parseInt(document.getElementById('markerY').value);
-  m.name = document.getElementById('markerName').value;
-  m.type = document.getElementById('markerType').value;
-  m.description = document.getElementById('markerDesc').value;
-  m.image = document.getElementById('markerImage').value || '';
-  m.creator = document.getElementById('markerCreator').value || '';
-  m.address = document.getElementById('markerAddress').value || '';
-
-  await saveMarkers();
-  drawMarkers();
-  refreshMarkerList();
-};
-document.getElementById('addMarkerBtn').onclick=async()=>{
-  if(selectedMarkerIndex!==null) await saveMarkers();
-  const newM={x:mapHeight/2,y:mapWidth/2,name:'',type:types[0]?types[0].name:'',description:''};
-  markers.push(newM); selectedMarkerIndex=markers.length-1;
-  selectMarker(selectedMarkerIndex);
-  await saveMarkers(); refreshMarkerList(); drawMarkers();
-};
-document.getElementById('deleteMarkerBtn').onclick=async()=>{
-  if(selectedMarkerIndex===null) return;
-  markers.splice(selectedMarkerIndex,1); selectedMarkerIndex=null;
-  await saveMarkers(); refreshMarkerList(); drawMarkers();
-};
-// --- ラベル管理 ---
-let labels = [];
-let selectedLabelIndex = null;
-
-// ラベル一覧更新
-function refreshLabelList(){
-  const div = document.getElementById('labelList');
-  div.innerHTML = '';
-  labels.forEach((l,i)=>{
-    const d = document.createElement('div');
-    d.className = 'list-item'+(i===selectedLabelIndex?' selected':'');
-    d.textContent = `${l.name} (x:${l.x}, y:${l.y})`;
-    d.onclick = ()=>selectLabel(i);
-    div.appendChild(d);
-  });
-}
-
-// ラベル選択
-function selectLabel(i){
-  selectedLabelIndex = i;
-  const l = labels[i];
-  document.getElementById('labelName').value = l.name;
-  document.getElementById('labelX').value = l.x;
-  document.getElementById('labelY').value = l.y;
-  refreshLabelList();
-}
-
-// 保存
 async function saveLabels(){
-  await fetch('/api/labels',{
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify(labels)
-  }).then(r=>r.json()).then(d=>console.log(d.message));
+  for(const l of labels){
+    if(l.id) await supabase.from('labels').update(l).eq('id',l.id);
+    else { const { data } = await supabase.from('labels').insert([l]); if(data) l.id=data[0].id; }
+  }
 }
 
-// ボタン操作
-document.getElementById('addLabelBtn').onclick = async()=>{
-  labels.push({
-    name: document.getElementById('labelName').value,
-    x: parseInt(document.getElementById('labelX').value),
-    y: parseInt(document.getElementById('labelY').value)
-  });
-  await saveLabels(); refreshLabelList(); drawLabels();
+// ===== 削除関数 =====
+async function deleteMarker(id){
+  await supabase.from('markers').delete().eq('id',id);
+}
+async function deleteType(id){
+  await supabase.from('type').delete().eq('id',id);
+}
+async function deleteLabel(id){
+  await supabase.from('labels').delete().eq('id',id);
+}
+
+// ===== 削除ボタン書き換え =====
+document.getElementById('deleteMarkerBtn').onclick = async ()=>{
+  if(selectedMarkerIndex===null) return;
+  const id = markers[selectedMarkerIndex].id;
+  if(id) await deleteMarker(id);
+  markers.splice(selectedMarkerIndex,1);
+  selectedMarkerIndex=null;
+  refreshMarkerList(); drawMarkers();
 };
 
-document.getElementById('updateLabelBtn').onclick = async()=>{
-  if(selectedLabelIndex===null) return;
-  labels[selectedLabelIndex] = {
-    name: document.getElementById('labelName').value,
-    x: parseInt(document.getElementById('labelX').value),
-    y: parseInt(document.getElementById('labelY').value)
-  };
-  await saveLabels(); refreshLabelList(); drawLabels();
+document.getElementById('deleteTypeBtn').onclick = async ()=>{
+  if(selectedTypeIndex===null) return;
+  const id = types[selectedTypeIndex].id;
+  if(id) await deleteType(id);
+  types.splice(selectedTypeIndex,1);
+  selectedTypeIndex=null;
+  refreshTypeList(); refreshMarkerTypeSelect(); drawMarkers();
 };
 
-document.getElementById('deleteLabelBtn').onclick = async()=>{
+document.getElementById('deleteLabelBtn').onclick = async ()=>{
   if(selectedLabelIndex===null) return;
+  const id = labels[selectedLabelIndex].id;
+  if(id) await deleteLabel(id);
   labels.splice(selectedLabelIndex,1);
   selectedLabelIndex=null;
-  await saveLabels(); refreshLabelList(); drawLabels();
-};
-document.getElementById('updateTypeBtn').onclick=async()=>{
-  if(selectedTypeIndex===null) return;
-  const t=types[selectedTypeIndex];
-  m.x = parseInt(document.getElementById('labelX').value); // 追加
-  m.y = parseInt(document.getElementById('labelY').value); // 追加
-  t.name=document.getElementById('typeName').value;
-  t.icon=document.getElementById('typeIcon').value;
-  t.description=document.getElementById('typeDesc').value;
-  await saveTypes(); refreshTypeList(); refreshMarkerTypeSelect(); drawMarkers();
-};
-document.getElementById('addTypeBtn').onclick=async()=>{
-  if(selectedTypeIndex!==null){
-    const t=types[selectedTypeIndex];
-    t.name=document.getElementById('typeName').value;
-    t.icon=document.getElementById('typeIcon').value;
-    t.description=document.getElementById('typeDesc').value;
-  }
-  const newT={name:'',icon:'',description:''};
-  types.push(newT); selectedTypeIndex=types.length-1;
-  selectType(selectedTypeIndex);
-  await saveTypes(); refreshTypeList(); refreshMarkerTypeSelect(); drawMarkers();
-};
-document.getElementById('deleteTypeBtn').onclick=async()=>{
-  if(selectedTypeIndex===null) return;
-  types.splice(selectedTypeIndex,1); selectedTypeIndex=null;
-  await saveTypes(); refreshTypeList(); refreshMarkerTypeSelect(); drawMarkers();
+  refreshLabelList(); drawLabels();
 };
 
-// --- サーバー保存 ---
-async function saveMarkers() {
-  for (const m of markers) {
-    if (m.id) {
-      const { error } = await supabase.from('markers').update(m).eq('id', m.id);
-      if (error) console.error('マーカー更新エラー:', error);
-    } else {
-      const { data, error } = await supabase.from('markers').insert([m]);
-      if (error) console.error('マーカー追加エラー:', error);
-      else m.id = data[0].id;
-    }
-  }
-}
-
-
-async function saveTypes() {
-  for (const t of types) {
-    if (t.id) {
-      const { error } = await supabase.from('type').update(t).eq('id', t.id);
-      if (error) console.error('タイプ更新エラー:', error);
-    } else {
-      const { data, error } = await supabase.from('type').insert([t]);
-      if (error) console.error('タイプ追加エラー:', error);
-      else t.id = data[0].id;
-    }
-  }
-}
-
-async function loadLabels() {
-  const { data, error } = await supabase.from('labels').select('*');
-  if (error) {
-    console.error('ラベル取得エラー:', error);
-    return [];
-  }
-  return data;
-}
-
-// --- labelsを読み込んで描画 ---
-(async () => {
-  labels = await loadLabels();
-  refreshLabelList(); // UIリスト更新
-  drawLabels();       // 地図上に描画
-})();
-
-  
+// ===== 以降：描画・リスト更新関数はあなたの元コードのままでOK =====
 </script>
 </body>
 </html>
