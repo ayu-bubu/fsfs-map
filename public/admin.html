@@ -5,6 +5,7 @@
 <title>マーカー管理サイト（地図プレビュー付き）</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 body { margin:0; font-family: Arial; display:flex; height:100vh; }
 #sidebar { width:350px; padding:10px; background:#f0f0f0; overflow-y:auto; box-sizing:border-box; }
@@ -105,16 +106,38 @@ button { margin-top:5px; width:32%; }
 <div id="map"></div>
 
 <script src="https://unpkg.com/leaflet@1.9.5/dist/leaflet.js"></script>
-<script>
-// --- Supabase クライアント ---
+// Supabase
+<script type="module">
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm'
 
-const supabaseUrl = 'https://gtaknrhaawmmvnbjhqrw.supabase.co'
-const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd0YWtucmhhYXdtbXZuYmpocXJ3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk4MjMyMDQsImV4cCI6MjA3NTM5OTIwNH0.CUHAN32On02b8Jo_6oNjjoy5lIT2GH5BeuKvQE1TXyw'
+// Supabase初期化
+const supabaseUrl = 'https://あなたのプロジェクトID.supabase.co'
+const supabaseAnonKey = 'あなたのanon public key'
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-const supabase = createClient(supabaseUrl, supabaseAnonKey)
+// --- データ取得例（markersテーブルから） ---
+async function loadMarkersFromSupabase() {
+  const { data, error } = await supabase.from('markers').select('*');
+   if (error) {
+     console.error('データ取得エラー:', error);
+     return [];
+   }
+  console.log('取得したマーカー:', data);
+  return data;
+ }
 
-// ---
+  // --- 地図初期化 ---
+  const map = L.map('map', { crs: L.CRS.Simple, minZoom:-5 });
+  const mapWidth = 5049, mapHeight = 2529;
+  const bounds = [[0,0],[mapHeight,mapWidth]];
+  map.setMaxBounds(bounds);
+  map.fitBounds(bounds);
+  L.imageOverlay('map.svg', bounds).addTo(map);
+
+  // --- Supabaseからマーカーを読み込む ---
+  const markers = await loadMarkersFromSupabase();
+  console.log('読み込んだマーカー:', markers);
+<script>
 let markers=[], types=[];
 let selectedMarkerIndex=null, selectedTypeIndex=null;
 let previewMarker=null;
@@ -409,35 +432,48 @@ document.getElementById('deleteTypeBtn').onclick=async()=>{
 
 // --- サーバー保存 ---
 async function saveMarkers() {
-  for(const m of markers){
-    if(m.id){
-      // 既存マーカーは更新
-      const { error } = await supabase.from('markers').update(m).eq('id', m.id)
-      if(error) console.error(error)
+  for (const m of markers) {
+    if (m.id) {
+      const { error } = await supabase.from('markers').update(m).eq('id', m.id);
+      if (error) console.error('マーカー更新エラー:', error);
     } else {
-      // 新規マーカーは追加
-      const { data, error } = await supabase.from('markers').insert([m])
-      if(error) console.error(error)
-      else m.id = data[0].id  // id を更新
+      const { data, error } = await supabase.from('markers').insert([m]);
+      if (error) console.error('マーカー追加エラー:', error);
+      else m.id = data[0].id;
     }
   }
 }
 
+
 async function saveTypes() {
-  await fetch('/api/types', {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify(types)
-  });
+  for (const t of types) {
+    if (t.id) {
+      const { error } = await supabase.from('type').update(t).eq('id', t.id);
+      if (error) console.error('タイプ更新エラー:', error);
+    } else {
+      const { data, error } = await supabase.from('type').insert([t]);
+      if (error) console.error('タイプ追加エラー:', error);
+      else t.id = data[0].id;
+    }
+  }
 }
 
-fetch('/api/labels')
-  .then(res => res.json())
-  .then(data => {
-    labels = data;
-    refreshLabelList();
-    drawLabels();  // ←ここで描画
-  });
+async function loadLabels() {
+  const { data, error } = await supabase.from('labels').select('*');
+  if (error) {
+    console.error('ラベル取得エラー:', error);
+    return [];
+  }
+  return data;
+}
+
+// --- labelsを読み込んで描画 ---
+(async () => {
+  labels = await loadLabels();
+  refreshLabelList(); // UIリスト更新
+  drawLabels();       // 地図上に描画
+})();
+
   
 </script>
 </body>
