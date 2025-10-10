@@ -106,6 +106,15 @@ button { margin-top:5px; width:32%; }
 
 <script src="https://unpkg.com/leaflet@1.9.5/dist/leaflet.js"></script>
 <script>
+// --- Supabase クライアント ---
+import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm'
+
+const supabaseUrl = 'https://gtaknrhaawmmvnbjhqrw.supabase.co'
+const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd0YWtucmhhYXdtbXZuYmpocXJ3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk4MjMyMDQsImV4cCI6MjA3NTM5OTIwNH0.CUHAN32On02b8Jo_6oNjjoy5lIT2GH5BeuKvQE1TXyw'
+
+const supabase = createClient(supabaseUrl, supabaseAnonKey)
+
+// ---
 let markers=[], types=[];
 let selectedMarkerIndex=null, selectedTypeIndex=null;
 let previewMarker=null;
@@ -125,10 +134,19 @@ const labelLayer = L.layerGroup().addTo(map);
 
 // --- サーバーから取得 ---
 async function loadData(){
-  const mRes=await fetch('/api/markers'); markers=await mRes.json();
-  const tRes=await fetch('/api/types'); types=await tRes.json();
-  refreshMarkerList(); refreshTypeList(); refreshMarkerTypeSelect();
-  drawMarkers();
+  // マーカー取得
+  let { data: markersData, error: mErr } = await supabase.from('markers').select('*')
+  if(mErr){ console.error(mErr); markers=[] } else { markers = markersData }
+
+  // 種類取得
+  let { data: typesData, error: tErr } = await supabase.from('types').select('*')
+  if(tErr){ console.error(tErr); types=[] } else { types = typesData }
+
+  // ラベル取得
+  let { data: labelsData, error: lErr } = await supabase.from('labels').select('*')
+  if(lErr){ console.error(lErr); labels=[] } else { labels = labelsData }
+
+  refreshMarkerList(); refreshTypeList(); refreshMarkerTypeSelect(); drawMarkers(); drawLabels();
 }
 loadData();
 // --- 航空画像オーバーレイ ---
@@ -391,11 +409,18 @@ document.getElementById('deleteTypeBtn').onclick=async()=>{
 
 // --- サーバー保存 ---
 async function saveMarkers() {
-  await fetch('/api/markers', {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify(markers)
-  });
+  for(const m of markers){
+    if(m.id){
+      // 既存マーカーは更新
+      const { error } = await supabase.from('markers').update(m).eq('id', m.id)
+      if(error) console.error(error)
+    } else {
+      // 新規マーカーは追加
+      const { data, error } = await supabase.from('markers').insert([m])
+      if(error) console.error(error)
+      else m.id = data[0].id  // id を更新
+    }
+  }
 }
 
 async function saveTypes() {
