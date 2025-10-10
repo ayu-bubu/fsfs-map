@@ -110,43 +110,40 @@ button { margin-top:5px; width:32%; }
 <script type="module">
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm'
 
-// --- Supabase 初期化（Vercel環境変数経由） ---
-const supabaseUrl = window.__SUPABASE_URL__ || 'https://gtaknrhaawmmvnbjhqrw.supabase.co';
-const supabaseAnonKey = window.__SUPABASE_ANON_KEY__ || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd0YWtucmhhYXdtbXZuYmpocXJ3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk4MjMyMDQsImV4cCI6MjA3NTM5OTIwNH0.CUHAN32On02b8Jo_6oNjjoy5lIT2GH5BeuKvQE1TXyw';
-
+// --- Supabase 初期化（Vercel 環境変数経由でも fallback） ---
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || window.__SUPABASE_URL__ || 'https://あなたのURL.supabase.co';
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || window.__SUPABASE_ANON_KEY__ || 'あなたのanon key';
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-// --- 変数宣言 ---
-let markers=[], types=[], labels=[];
-let selectedMarkerIndex=null, selectedTypeIndex=null, selectedLabelIndex=null;
-  
-// --- Leaflet 初期化 ---
+// --- グローバル変数 ---
+let markers = [], types = [], labels = [];
+let selectedMarkerIndex = null, selectedTypeIndex = null, selectedLabelIndex = null;
+
 const map = L.map('map', { crs: L.CRS.Simple, minZoom: -5 });
 const mapWidth = 5049, mapHeight = 2529;
-const bounds = [[0, 0], [mapHeight, mapWidth]];
+const bounds = [[0,0],[mapHeight,mapWidth]];
 map.setMaxBounds(bounds);
 map.fitBounds(bounds);
-L.imageOverlay('map.svg', bounds).addTo(map);
 
-// --- レイヤー準備 ---
 const markerLayer = L.layerGroup().addTo(map);
 const labelLayer = L.layerGroup().addTo(map);
+L.imageOverlay('map.svg', bounds).addTo(map);
+const aerialOverlay = L.imageOverlay('layers/dynmap2509.png', bounds, { opacity: 0.5, interactive: false });
 
-// --- ここから関数定義（呼び出し前に必ず書く） ---
-function refreshMarkerList(){ /* 既存の内容 */ }
-function refreshTypeList(){ /* 既存の内容 */ }
-function refreshMarkerTypeSelect(){ /* 既存の内容 */ }
-function drawMarkers(){ /* 既存の内容 */ }
-function drawLabels(){ /* 既存の内容 */ }
-  
-// --- Supabaseからデータ取得 ---
+// --- 既存 UI 関数（refreshMarkerList, refreshTypeList, refreshMarkerTypeSelect, drawMarkers, drawLabels） ---
+// ←ここに既存 admin.html 内の関数をそのままコピーしてください
+/* 既存の内容 */
+
+// --- loadData 関数 ---
 async function loadData() {
-  const { data: markersData } = await supabase.from('markers').select('*');
-  const { data: typesData } = await supabase.from('type').select('*');
-  const { data: labelsData } = await supabase.from('labels').select('*');
-  markers = markersData || [];
-  types = typesData || [];
-  labels = labelsData || [];
+  const { data: markersData, error: mErr } = await supabase.from('markers').select('*');
+  const { data: typesData, error: tErr } = await supabase.from('types').select('*'); // 注意: テーブル名
+  const { data: labelsData, error: lErr } = await supabase.from('labels').select('*');
+
+  if (mErr) { console.error(mErr); markers = [] } else { markers = markersData || [] }
+  if (tErr) { console.error(tErr); types = [] } else { types = typesData || [] }
+  if (lErr) { console.error(lErr); labels = [] } else { labels = labelsData || [] }
+
   refreshMarkerList();
   refreshTypeList();
   refreshMarkerTypeSelect();
@@ -154,93 +151,81 @@ async function loadData() {
   drawMarkers();
   drawLabels();
 }
-await loadData();
 
-// --- 保存（マーカー） ---
+// --- 初期読み込み ---
+(async () => {
+  await loadData();
+})();
+
+// --- 保存関数 ---
 async function saveMarkers() {
   for (const m of markers) {
     if (m.id) {
-      await supabase.from('markers').update(m).eq('id', m.id);
+      const { error } = await supabase.from('markers').update(m).eq('id', m.id);
+      if (error) console.error('マーカー更新エラー:', error);
     } else {
-      const { data } = await supabase.from('markers').insert([m]).select();
-      if (data && data[0]) m.id = data[0].id;
+      const { data, error } = await supabase.from('markers').insert([m]);
+      if (error) console.error('マーカー追加エラー:', error);
+      else m.id = data[0].id;
     }
   }
 }
 
-// --- 削除（マーカー） ---
-async function deleteMarker(id) {
-  await supabase.from('markers').delete().eq('id', id);
-}
-
-// --- 保存（種類） ---
 async function saveTypes() {
   for (const t of types) {
     if (t.id) {
-      await supabase.from('type').update(t).eq('id', t.id);
+      const { error } = await supabase.from('types').update(t).eq('id', t.id);
+      if (error) console.error('タイプ更新エラー:', error);
     } else {
-      const { data } = await supabase.from('type').insert([t]).select();
-      if (data && data[0]) t.id = data[0].id;
+      const { data, error } = await supabase.from('types').insert([t]);
+      if (error) console.error('タイプ追加エラー:', error);
+      else t.id = data[0].id;
     }
   }
 }
 
-// --- 削除（種類） ---
-async function deleteType(id) {
-  await supabase.from('type').delete().eq('id', id);
-}
-
-// --- 保存（ラベル） ---
 async function saveLabels() {
   for (const l of labels) {
     if (l.id) {
-      await supabase.from('labels').update(l).eq('id', l.id);
+      const { error } = await supabase.from('labels').update(l).eq('id', l.id);
+      if (error) console.error('ラベル更新エラー:', error);
     } else {
-      const { data } = await supabase.from('labels').insert([l]).select();
-      if (data && data[0]) l.id = data[0].id;
+      const { data, error } = await supabase.from('labels').insert([l]);
+      if (error) console.error('ラベル追加エラー:', error);
+      else l.id = data[0].id;
     }
   }
 }
 
-// --- 削除（ラベル） ---
-async function deleteLabel(id) {
-  await supabase.from('labels').delete().eq('id', id);
-}
+// --- 航空画像表示切替 ---
+let overlayVisible = false;
+document.getElementById('toggleOverlayBtn').addEventListener('click', () => {
+  if (overlayVisible) { map.removeLayer(aerialOverlay); overlayVisible = false; }
+  else { aerialOverlay.addTo(map); overlayVisible = true; }
+});
 
-// --- 描画系関数（UI変えない） ---
-function drawMarkers() {
-  markerLayer.clearLayers();
-  markers.forEach(m => {
-    const type = types.find(t => t.name === m.type);
-    const iconUrl = type ? type.icon : '';
-    const leafletIcon = iconUrl ? L.icon({ iconUrl, iconSize: [32, 32], iconAnchor: [16, 16] }) : null;
-    const popupContent = `
-      <div style="min-width:150px;">
-        <strong>${m.name}</strong><br>
-        ${m.description ? `${m.description}<br>` : ''}
-        ${m.image ? `<img src="${m.image}" alt="${m.name}" style="max-width:100%;"><br>` : ''}
-        ${m.creator ? `製作者: ${m.creator}<br>` : ''}
-        ${m.address ? `住所: ${m.address}<br>` : ''}
-      </div>
-    `;
-    const lm = L.marker([m.y, m.x], { icon: leafletIcon }).addTo(markerLayer);
-    lm.bindPopup(popupContent);
-  });
-}
+// --- 座標選択 ---
+let selectingCoords = false;
+document.getElementById('selectCoordsBtn').addEventListener('click', () => {
+  selectingCoords = true; alert("地図上をクリックして座標を選択してください");
+});
+let selectingLabelCoords = false;
+document.getElementById('selectLabelCoordsBtn').addEventListener('click', () => {
+  selectingLabelCoords = true; alert("地図上をクリックしてラベル座標を選択してください");
+});
 
-function drawLabels() {
-  labelLayer.clearLayers();
-  labels.forEach(l => {
-    L.marker([l.y, l.x], {
-      icon: L.divIcon({
-        className: 'map-label',
-        html: l.name,
-        iconSize: [100, 24]
-      }),
-      interactive: false
-    }).addTo(labelLayer);
-  });
-}
+map.on('click', (e) => {
+  if (selectingCoords) {
+    document.getElementById('markerX').value = Math.round(e.latlng.lng);
+    document.getElementById('markerY').value = Math.round(e.latlng.lat);
+    selectingCoords = false;
+  }
+  if (selectingLabelCoords) {
+    document.getElementById('labelX').value = Math.round(e.latlng.lng);
+    document.getElementById('labelY').value = Math.round(e.latlng.lat);
+    selectingLabelCoords = false;
+  }
+});
 </script>
 </body>
 </html>
